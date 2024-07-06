@@ -1,0 +1,43 @@
+pipeline {
+    agent any
+    environment {
+        BRANCH_NAME = "${env.BRANCH_NAME}"
+        DOCKER_IMAGE = "myapp:${BRANCH_NAME}"
+        NETWORK_NAME = "network_${BRANCH_NAME}"
+        VOLUME_NAME = "volume_${BRANCH_NAME}"
+    }
+    stages {
+        stage('Checkout') {
+            steps {
+                git branch: "${BRANCH_NAME}", url: 'https://github.com/your-username/your-repo.git'
+            }
+        }
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    docker.build("${DOCKER_IMAGE}", "./${BRANCH_NAME}")
+                }
+            }
+        }
+        stage('Deploy') {
+            steps {
+                script {
+                    sh """
+                    docker network inspect ${NETWORK_NAME} >/dev/null 2>&1 || docker network create ${NETWORK_NAME}
+                    docker volume inspect ${VOLUME_NAME} >/dev/null 2>&1 || docker volume create ${VOLUME_NAME}
+                    docker run -d --name ${BRANCH_NAME}_container --network ${NETWORK_NAME} --mount source=${VOLUME_NAME},target=/app/data ${DOCKER_IMAGE}
+                    """
+                }
+            }
+        }
+    }
+    post {
+        always {
+            script {
+                sh """
+                docker ps -a -q --filter "name=${BRANCH_NAME}_container" --filter "status=exited" | xargs -r docker rm
+                """
+            }
+        }
+    }
+}
